@@ -152,7 +152,7 @@
         <p class="info">Enter 1-24 numbers between 1 and 2048</p>
 
         <label for="password">Password</label>
-        <input type="password" id="password" placeholder="Enter password">
+        <input type="password" id="password" placeholder="Enter password" autocomplete="off" data-lpignore="true">
 
         <button onclick="doEncrypt()" id="encryptBtn">Encrypt</button>
 
@@ -173,7 +173,7 @@
         <textarea id="encoded" rows="3" placeholder="Paste encrypted text here"></textarea>
 
         <label for="decode-password">Password</label>
-        <input type="password" id="decode-password" placeholder="Enter password">
+        <input type="password" id="decode-password" placeholder="Enter password" autocomplete="off" data-lpignore="true">
 
         <button onclick="doDecrypt()" id="decryptBtn">Decrypt</button>
 
