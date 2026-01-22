@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Number Sequence Encryptor</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+        }
+        .container {
+            background: #16213e;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #333;
+            border-radius: 5px;
+            background: #0f0f23;
+            color: #fff;
+            font-size: 16px;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #00a8cc;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 5px;
+            word-break: break-all;
+            font-family: monospace;
+            margin-top: 15px;
+        }
+        #qrcode {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #qrcode img {
+            border-radius: 10px;
+            max-width: 100%;
+        }
+        .save-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 10px;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .btn-row button {
+            flex: 1;
+        }
+        .error {
+            color: #ff6b6b;
+            margin-top: 10px;
+        }
+        .info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            background: #0f0f23;
+            border: 1px solid #333;
+        }
+        .tab:first-child {
+            border-radius: 5px 0 0 5px;
+        }
+        .tab:last-child {
+            border-radius: 0 5px 5px 0;
+        }
+        .tab.active {
+            background: #00d4ff;
+            color: #000;
+            border-color: #00d4ff;
+        }
+        .hidden {
+            display: none;
+        }
+        .download-btn {
+            margin-top: 10px;
+            background: #28a745;
+        }
+        .download-btn:hover {
+            background: #218838;
+        }
+    </style>
+</head>
+<body>
+    <h1>Number Sequence Encryptor</h1>
+
+    <div class="tabs">
+        <div class="tab active" onclick="showTab('encode')">Encode</div>
+        <div class="tab" onclick="showTab('decode')">Decode</div>
+    </div>
+
+    <div id="encode-tab" class="container">
+        <label for="numbers">Numbers (1-2048, comma separated)</label>
+        <input type="text" id="numbers" placeholder="e.g., 1, 512, 2048, 100">
+        <p class="info">Enter 1-24 numbers between 1 and 2048</p>
+
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter password">
+
+        <button onclick="doEncrypt()" id="encryptBtn">Encrypt</button>
+
+        <div id="encrypt-result" class="hidden">
+            <div class="output" id="encrypted-text"></div>
+            <div id="qrcode"></div>
+            <p class="save-hint">Long-press the QR code to save on mobile</p>
+            <div class="btn-row">
+                <button class="download-btn" onclick="downloadQR()">Download</button>
+                <button class="download-btn" onclick="shareQR()" id="shareBtn" style="display:none;">Share</button>
+            </div>
+        </div>
+        <div id="encrypt-error" class="error"></div>
+    </div>
+
+    <div id="decode-tab" class="container hidden">
+        <label for="encoded">Encrypted text</label>
+        <textarea id="encoded" rows="3" placeholder="Paste encrypted text here"></textarea>
+
+        <label for="decode-password">Password</label>
+        <input type="password" id="decode-password" placeholder="Enter password">
+
+        <button onclick="doDecrypt()" id="decryptBtn">Decrypt</button>
+
+        <div id="decrypt-result" class="hidden">
+            <label>Decrypted numbers:</label>
+            <div class="output" id="decrypted-text"></div>
+        </div>
+        <div id="decrypt-error" class="error"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script>
+        // === Constants ===
+        const SALT_LEN = 16;
+        const IV_LEN = 12;
+        const ITERATIONS = 200000;
+
+        // === Base91 Encoder/Decoder ===
+        const BASE91_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"';
+
+        function base91Encode(data) {
+            const lookup = BASE91_ALPHABET;
+            let result = '';
+            let n = 0;
+            let bits = 0;
+
+            for (let i = 0; i < data.length; i++) {
+                n |= data[i] << bits;
+                bits += 8;
+
+                if (bits > 13) {
+                    let v = n & 8191;
+                    if (v > 88) {
+                        n >>= 13;
+                        bits -= 13;
+                    } else {
+                        v = n & 16383;
+                        n >>= 14;
+                        bits -= 14;
+                    }
+                    result += lookup[v % 91] + lookup[Math.floor(v / 91)];
+                }
+            }
+
+            if (bits > 0) {
+                result += lookup[n % 91];
+                if (bits > 7 || n > 90) {
+                    result += lookup[Math.floor(n / 91)];
+                }
+            }
+
+            return result;
+        }
+
+        function base91Decode(str) {
+            const lookup = {};
+            for (let i = 0; i < BASE91_ALPHABET.length; i++) {
+                lookup[BASE91_ALPHABET[i]] = i;
+            }
+
+            const result = [];
+            let n = 0;
+            let bits = 0;
+            let v = -1;
+
+            for (let i = 0; i < str.length; i++) {
+                const c = lookup[str[i]];
+                if (c === undefined) continue;
+
+                if (v < 0) {
+                    v = c;
+                } else {
+                    v += c * 91;
+                    n |= v << bits;
+                    bits += (v & 8191) > 88 ? 13 : 14;
+
+                    while (bits >= 8) {
+                        result.push(n & 255);
+                        n >>= 8;
+                        bits -= 8;
+                    }
+                    v = -1;
+                }
+            }
+
+            if (v >= 0) {
+                result.push((n | (v << bits)) & 255);
+            }
+
+            return new Uint8Array(result);
+        }
+
+        // === 11-bit packing ===
+        function pack11bit(numbers) {
+            const bits = [];
+            for (const n of numbers) {
+                for (let i = 10; i >= 0; i--) {
+                    bits.push((n >> i) & 1);
+                }
+            }
+
+            while (bits.length % 8 !== 0) {
+                bits.push(0);
+            }
+
+            const result = new Uint8Array(bits.length / 8);
+            for (let i = 0; i < bits.length; i += 8) {
+                let byte = 0;
+                for (let j = 0; j < 8; j++) {
+                    byte = (byte << 1) | bits[i + j];
+                }
+                result[i / 8] = byte;
+            }
+
+            return result;
+        }
+
+        function unpack11bit(data, count) {
+            const bits = [];
+            for (const byte of data) {
+                for (let i = 7; i >= 0; i--) {
+                    bits.push((byte >> i) & 1);
+                }
+            }
+
+            const numbers = [];
+            for (let i = 0; i < count; i++) {
+                let n = 0;
+                for (let j = 0; j < 11; j++) {
+                    n = (n << 1) | bits[i * 11 + j];
+                }
+                numbers.push(n);
+            }
+
+            return numbers;
+        }
+
+        // === Key derivation ===
+        async function deriveKey(password, salt) {
+            const enc = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                'raw',
+                enc.encode(password),
+                'PBKDF2',
+                false,
+                ['deriveBits', 'deriveKey']
+            );
+
+            return crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: ITERATIONS,
+                    hash: 'SHA-256'
+                },
+                keyMaterial,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+        }
+
+        // === Encrypt ===
+        async function encrypt(numbers, password) {
+            if (!numbers || numbers.length === 0 || numbers.length > 24) {
+                throw new Error('1-24 numbers required');
+            }
+
+            const indices = numbers.map(n => n - 1);
+            for (const idx of indices) {
+                if (idx < 0 || idx > 2047) {
+                    throw new Error('Numbers must be between 1 and 2048');
+                }
+            }
+
+            const packed = pack11bit(indices);
+            const payload = new Uint8Array(1 + packed.length);
+            payload[0] = numbers.length;
+            payload.set(packed, 1);
+
+            const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+            const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+            const key = await deriveKey(password, salt);
+
+            const encrypted = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv },
+                key,
+                payload
+            );
+
+            const combined = new Uint8Array(SALT_LEN + IV_LEN + encrypted.byteLength);
+            combined.set(salt, 0);
+            combined.set(iv, SALT_LEN);
+            combined.set(new Uint8Array(encrypted), SALT_LEN + IV_LEN);
+
+            return base91Encode(combined);
+        }
+
+        // === Decrypt ===
+        async function decrypt(encoded, password) {
+            const raw = base91Decode(encoded);
+
+            const salt = raw.slice(0, SALT_LEN);
+            const iv = raw.slice(SALT_LEN, SALT_LEN + IV_LEN);
+            const ciphertext = raw.slice(SALT_LEN + IV_LEN);
+
+            const key = await deriveKey(password, salt);
+
+            const decrypted = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: iv },
+                key,
+                ciphertext
+            );
+
+            const data = new Uint8Array(decrypted);
+            const count = data[0];
+            const indices = unpack11bit(data.slice(1), count);
+
+            return indices.map(idx => idx + 1);
+        }
+
+        // === UI Functions ===
+        function showTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab:${tab === 'encode' ? 'first' : 'last'}-child`).classList.add('active');
+
+            document.getElementById('encode-tab').classList.toggle('hidden', tab !== 'encode');
+            document.getElementById('decode-tab').classList.toggle('hidden', tab !== 'decode');
+        }
+
+        async function doEncrypt() {
+            const numbersInput = document.getElementById('numbers').value;
+            const password = document.getElementById('password').value;
+            const errorEl = document.getElementById('encrypt-error');
+            const resultEl = document.getElementById('encrypt-result');
+
+            errorEl.textContent = '';
+            resultEl.classList.add('hidden');
+
+            if (!numbersInput.trim()) {
+                errorEl.textContent = 'Please enter numbers';
+                return;
+            }
+
+            if (!password) {
+                errorEl.textContent = 'Please enter a password';
+                return;
+            }
+
+            try {
+                const numbers = numbersInput.split(',').map(s => parseInt(s.trim(), 10));
+
+                if (numbers.some(isNaN)) {
+                    throw new Error('Invalid number format');
+                }
+
+                document.getElementById('encryptBtn').disabled = true;
+                document.getElementById('encryptBtn').textContent = 'Encrypting...';
+
+                const encrypted = await encrypt(numbers, password);
+
+                document.getElementById('encrypted-text').textContent = encrypted;
+
+                const qrContainer = document.getElementById('qrcode');
+                qrContainer.innerHTML = '';
+                const qr = qrcode(0, 'M');
+                qr.addData(encrypted);
+                qr.make();
+                const img = document.createElement('img');
+                img.src = qr.createDataURL(10, 4);
+                img.alt = 'Encrypted QR Code';
+                qrContainer.appendChild(img);
+
+                // Show share button if Web Share API is available
+                if (navigator.share && navigator.canShare) {
+                    document.getElementById('shareBtn').style.display = 'block';
+                }
+
+                resultEl.classList.remove('hidden');
+            } catch (e) {
+                errorEl.textContent = e.message;
+            } finally {
+                document.getElementById('encryptBtn').disabled = false;
+                document.getElementById('encryptBtn').textContent = 'Encrypt';
+            }
+        }
+
+        async function doDecrypt() {
+            const encoded = document.getElementById('encoded').value.trim();
+            const password = document.getElementById('decode-password').value;
+            const errorEl = document.getElementById('decrypt-error');
+            const resultEl = document.getElementById('decrypt-result');
+
+            errorEl.textContent = '';
+            resultEl.classList.add('hidden');
+
+            if (!encoded) {
+                errorEl.textContent = 'Please enter encrypted text';
+                return;
+            }
+
+            if (!password) {
+                errorEl.textContent = 'Please enter a password';
+                return;
+            }
+
+            try {
+                document.getElementById('decryptBtn').disabled = true;
+                document.getElementById('decryptBtn').textContent = 'Decrypting...';
+
+                const numbers = await decrypt(encoded, password);
+                document.getElementById('decrypted-text').textContent = numbers.join(', ');
+                resultEl.classList.remove('hidden');
+            } catch (e) {
+                errorEl.textContent = 'Invalid password or corrupted data';
+            } finally {
+                document.getElementById('decryptBtn').disabled = false;
+                document.getElementById('decryptBtn').textContent = 'Decrypt';
+            }
+        }
+
+        function downloadQR() {
+            const img = document.querySelector('#qrcode img');
+            if (!img) return;
+
+            const link = document.createElement('a');
+            link.download = 'encrypted-qr.png';
+            link.href = img.src;
+            link.click();
+        }
+
+        async function shareQR() {
+            const img = document.querySelector('#qrcode img');
+            if (!img) return;
+
+            try {
+                // Convert data URL to blob for sharing
+                const response = await fetch(img.src);
+                const blob = await response.blob();
+                const file = new File([blob], 'encrypted-qr.png', { type: 'image/png' });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: 'Encrypted QR Code'
+                    });
+                } else {
+                    // Fallback: share just the text
+                    await navigator.share({
+                        title: 'Encrypted QR Code',
+                        text: document.getElementById('encrypted-text').textContent
+                    });
+                }
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    alert('Sharing failed. Try long-pressing the image to save.');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
