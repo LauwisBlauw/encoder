@@ -50,6 +50,14 @@
         .hidden { display: none; }
         .download-btn { margin-top: 10px; background: #28a745; color: white; }
         .download-btn:hover { background: #218838; }
+        .password-wrapper { position: relative; }
+        .password-wrapper input { padding-right: 50px; }
+        .toggle-password {
+            position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: #888; cursor: pointer;
+            font-size: 12px; padding: 5px; width: auto; margin: 0;
+        }
+        .toggle-password:hover { color: #00d4ff; background: none; }
     </style>
 </head>
 <body>
@@ -66,7 +74,10 @@
         <p class="info">Enter 1-24 numbers between 1 and 2048</p>
 
         <label>Password</label>
-        <input type="password" id="password" placeholder="Enter password" autocomplete="off">
+        <div class="password-wrapper">
+            <input type="password" id="password" placeholder="Enter password" autocomplete="off">
+            <button type="button" class="toggle-password" onclick="togglePassword('password', this)">Show</button>
+        </div>
 
         <button onclick="doEncrypt()" id="encryptBtn">Generate Encrypted QR</button>
 
@@ -87,7 +98,10 @@
         <textarea id="encoded" rows="3" placeholder="Paste encrypted text here"></textarea>
 
         <label>Password</label>
-        <input type="password" id="decode-password" placeholder="Enter password" autocomplete="off">
+        <div class="password-wrapper">
+            <input type="password" id="decode-password" placeholder="Enter password" autocomplete="off">
+            <button type="button" class="toggle-password" onclick="togglePassword('decode-password', this)">Show</button>
+        </div>
 
         <button onclick="doDecrypt()" id="decryptBtn">Decrypt QR Data</button>
 
@@ -113,7 +127,7 @@
                 n |= data[i] << bits; bits += 8;
                 if (bits > 13) {
                     let v = n & 8191;
-                    if (v > 88) { n >>= 13; bits -= 13; } 
+                    if (v > 88) { n >>= 13; bits -= 13; }
                     else { v = n & 16383; n >>= 14; bits -= 14; }
                     result += lookup[v % 91] + lookup[Math.floor(v / 91)];
                 }
@@ -213,6 +227,17 @@
         }
 
         // --- UI & PNG Logic ---
+        function togglePassword(inputId, btn) {
+            const input = document.getElementById(inputId);
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.textContent = 'Hide';
+            } else {
+                input.type = 'password';
+                btn.textContent = 'Show';
+            }
+        }
+
         function showTab(tab) {
             document.getElementById('encode-tab').classList.toggle('hidden', tab !== 'encode');
             document.getElementById('decode-tab').classList.toggle('hidden', tab !== 'decode');
@@ -241,7 +266,7 @@
                 document.getElementById('encrypted-text').textContent = encrypted;
 
                 // QR Generation & PNG Conversion Bridge
-                const qr = qrcode(0, 'M');
+                const qr = qrcode(0, 'H');  // High error correction for better reliability
                 qr.addData(encrypted);
                 qr.make();
 
@@ -251,8 +276,11 @@
                     canvas.width = tempImg.width;
                     canvas.height = tempImg.height;
                     const ctx = canvas.getContext('2d');
+                    // Ensure white background for better scanning
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(tempImg, 0, 0);
-                    
+
                     const pngData = canvas.toDataURL('image/png');
                     const qrContainer = document.getElementById('qrcode');
                     qrContainer.innerHTML = '';
@@ -264,7 +292,7 @@
                     resultEl.classList.remove('hidden');
                     btn.disabled = false; btn.textContent = 'Generate Encrypted QR';
                 };
-                tempImg.src = qr.createDataURL(10, 4);
+                tempImg.src = qr.createDataURL(12, 4);  // Larger cells for better scanning
 
             } catch (e) {
                 errorEl.textContent = e.message;
@@ -292,10 +320,20 @@
         function downloadQR() {
             const img = document.querySelector('#qrcode img');
             if (!img) return;
-            const link = document.createElement('a');
-            link.download = 'secure-sequence.png';
-            link.href = img.src;
-            link.click();
+
+            // Convert data URL to blob for reliable PNG download
+            fetch(img.src)
+                .then(res => res.blob())
+                .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = 'secure-sequence.png';
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                });
         }
 
         async function shareQR() {
