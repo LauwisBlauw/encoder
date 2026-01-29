@@ -35,7 +35,7 @@
             word-break: break-all; font-family: monospace; margin-top: 15px;
         }
         #qrcode { text-align: center; margin-top: 20px; }
-        #qrcode img { border-radius: 10px; max-width: 100%; border: 8px solid white; }
+        #qrcode img { border-radius: 0; max-width: 100%; border: 8px solid white; image-rendering: pixelated; }
         .save-hint { font-size: 12px; color: #888; margin-top: 10px; text-align: center; }
         .btn-row { display: flex; gap: 10px; margin-top: 10px; }
         .btn-row button { flex: 1; }
@@ -50,6 +50,11 @@
         .hidden { display: none; }
         .download-btn { margin-top: 10px; background: #28a745; color: white; }
         .download-btn:hover { background: #218838; }
+        .download-section { margin-top: 15px; padding: 15px; background: #0f0f23; border-radius: 5px; }
+        .download-section h3 { margin: 0 0 10px 0; font-size: 14px; color: #00d4ff; }
+        .download-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .download-grid button { width: 100%; }
+        .format-info { font-size: 11px; color: #666; margin-top: 3px; text-align: center; }
         .password-wrapper { position: relative; }
         .password-wrapper input { padding-right: 50px; }
         .toggle-password {
@@ -84,10 +89,26 @@
         <div id="encrypt-result" class="hidden">
             <div class="output" id="encrypted-text"></div>
             <div id="qrcode"></div>
-            <p class="save-hint">Long-press image to save as PNG</p>
-            <div class="btn-row">
-                <button class="download-btn" onclick="downloadQR()">Download PNG</button>
-                <button class="download-btn" onclick="shareQR()" id="shareBtn" style="display:none;">Share</button>
+            <div class="download-section">
+                <h3>Download for Metal Laser Engraving</h3>
+                <div class="download-grid">
+                    <div>
+                        <button class="download-btn" onclick="downloadSVG()">Download SVG</button>
+                        <p class="format-info">Vector - Best for laser</p>
+                    </div>
+                    <div>
+                        <button class="download-btn" onclick="downloadPNG()">Download PNG</button>
+                        <p class="format-info">High-res raster backup</p>
+                    </div>
+                    <div>
+                        <button class="download-btn" onclick="downloadEPS()">Download EPS</button>
+                        <p class="format-info">Print/engrave shops</p>
+                    </div>
+                    <div>
+                        <button class="download-btn" onclick="shareQR()" id="shareBtn" style="display:none;">Share</button>
+                        <p class="format-info" id="shareInfo" style="display:none;">Send to device</p>
+                    </div>
+                </div>
             </div>
         </div>
         <div id="encrypt-error" class="error"></div>
@@ -265,34 +286,59 @@
                 const encrypted = await encrypt(numbers, password);
                 document.getElementById('encrypted-text').textContent = encrypted;
 
-                // QR Generation & PNG Conversion Bridge
-                const qr = qrcode(0, 'H');  // High error correction for better reliability
+                // QR Generation optimized for metal laser engraving
+                const qr = qrcode(0, 'H');  // High error correction (30% recovery)
                 qr.addData(encrypted);
                 qr.make();
 
-                const tempImg = new Image();
-                tempImg.onload = function() {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = tempImg.width;
-                    canvas.height = tempImg.height;
-                    const ctx = canvas.getContext('2d');
-                    // Ensure white background for better scanning
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(tempImg, 0, 0);
+                // Store QR data globally for export functions
+                window.currentQR = qr;
+                window.qrModuleCount = qr.getModuleCount();
 
-                    const pngData = canvas.toDataURL('image/png');
-                    const qrContainer = document.getElementById('qrcode');
-                    qrContainer.innerHTML = '';
-                    const finalImg = document.createElement('img');
-                    finalImg.src = pngData;
-                    qrContainer.appendChild(finalImg);
+                // Generate high-contrast preview image
+                const moduleSize = 16;  // Large modules for laser precision
+                const margin = 4;       // Quiet zone in modules
+                const size = (window.qrModuleCount + margin * 2) * moduleSize;
 
-                    if (navigator.share) document.getElementById('shareBtn').style.display = 'block';
-                    resultEl.classList.remove('hidden');
-                    btn.disabled = false; btn.textContent = 'Generate Encrypted QR';
-                };
-                tempImg.src = qr.createDataURL(12, 4);  // Larger cells for better scanning
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+
+                // Pure white background
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, size, size);
+
+                // Pure black modules - sharp edges for laser
+                ctx.fillStyle = '#000000';
+                for (let row = 0; row < window.qrModuleCount; row++) {
+                    for (let col = 0; col < window.qrModuleCount; col++) {
+                        if (qr.isDark(row, col)) {
+                            ctx.fillRect(
+                                (col + margin) * moduleSize,
+                                (row + margin) * moduleSize,
+                                moduleSize,
+                                moduleSize
+                            );
+                        }
+                    }
+                }
+
+                const pngData = canvas.toDataURL('image/png');
+                window.currentQRPng = pngData;
+
+                const qrContainer = document.getElementById('qrcode');
+                qrContainer.innerHTML = '';
+                const finalImg = document.createElement('img');
+                finalImg.src = pngData;
+                qrContainer.appendChild(finalImg);
+
+                if (navigator.share) {
+                    document.getElementById('shareBtn').style.display = 'block';
+                    document.getElementById('shareInfo').style.display = 'block';
+                }
+                resultEl.classList.remove('hidden');
+                btn.disabled = false; btn.textContent = 'Generate Encrypted QR';
 
             } catch (e) {
                 errorEl.textContent = e.message;
@@ -317,30 +363,107 @@
             }
         }
 
-        function downloadQR() {
-            const img = document.querySelector('#qrcode img');
-            if (!img) return;
+        // Generate SVG - Best format for laser engraving (vector, infinitely scalable)
+        function generateSVG() {
+            if (!window.currentQR) return null;
+            const qr = window.currentQR;
+            const moduleCount = window.qrModuleCount;
+            const moduleSize = 1;  // 1 unit per module (scalable)
+            const margin = 4;      // Quiet zone
+            const size = moduleCount + margin * 2;
 
-            // Convert data URL to blob for reliable PNG download
-            fetch(img.src)
+            let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 ${size} ${size}" width="${size * 10}mm" height="${size * 10}mm">
+<desc>QR Code optimized for metal laser engraving</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<g fill="#000000">`;
+
+            // Generate path for each dark module
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qr.isDark(row, col)) {
+                        svg += `<rect x="${col + margin}" y="${row + margin}" width="${moduleSize}" height="${moduleSize}"/>`;
+                    }
+                }
+            }
+
+            svg += `</g></svg>`;
+            return svg;
+        }
+
+        // Generate EPS - Professional print/engrave shop format
+        function generateEPS() {
+            if (!window.currentQR) return null;
+            const qr = window.currentQR;
+            const moduleCount = window.qrModuleCount;
+            const moduleSize = 10;  // Points
+            const margin = 4;
+            const size = (moduleCount + margin * 2) * moduleSize;
+
+            let eps = `%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 ${size} ${size}
+%%Title: QR Code for Metal Laser Engraving
+%%Creator: Number Encryptor
+%%EndComments
+
+% White background
+1 setgray
+0 0 ${size} ${size} rectfill
+
+% Black modules
+0 setgray
+`;
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qr.isDark(row, col)) {
+                        const x = (col + margin) * moduleSize;
+                        const y = (moduleCount - 1 - row + margin) * moduleSize; // EPS origin is bottom-left
+                        eps += `${x} ${y} ${moduleSize} ${moduleSize} rectfill\n`;
+                    }
+                }
+            }
+
+            eps += `%%EOF`;
+            return eps;
+        }
+
+        function downloadSVG() {
+            const svg = generateSVG();
+            if (!svg) return;
+            const blob = new Blob([svg], { type: 'image/svg+xml' });
+            downloadBlob(blob, 'secure-sequence-laser.svg');
+        }
+
+        function downloadPNG() {
+            if (!window.currentQRPng) return;
+            fetch(window.currentQRPng)
                 .then(res => res.blob())
-                .then(blob => {
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.download = 'secure-sequence.png';
-                    link.href = url;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(url);
-                });
+                .then(blob => downloadBlob(blob, 'secure-sequence-hires.png'));
+        }
+
+        function downloadEPS() {
+            const eps = generateEPS();
+            if (!eps) return;
+            const blob = new Blob([eps], { type: 'application/postscript' });
+            downloadBlob(blob, 'secure-sequence-laser.eps');
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = url;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
         }
 
         async function shareQR() {
-            const img = document.querySelector('#qrcode img');
-            const response = await fetch(img.src);
+            if (!window.currentQRPng) return;
+            const response = await fetch(window.currentQRPng);
             const blob = await response.blob();
-            const file = new File([blob], 'qr.png', { type: 'image/png' });
+            const file = new File([blob], 'secure-sequence.png', { type: 'image/png' });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
                 await navigator.share({ files: [file], title: 'Encrypted QR' });
             }
